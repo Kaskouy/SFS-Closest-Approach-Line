@@ -9,7 +9,7 @@ The closest approach line is displayed in light blue to be easily distinguished 
 This is a less powerful tool than the embedded navigation system, but when this one fails, the closest approach line will still be there for you.
 
 
-New feature since V2.3: closest approach on multi-turns
+# New feature since V2.3: closest approach on multi-turns
 
 When the player orbit intersects with the targeted orbit, the game also shows 2 green lines (one for each of the crossing points) that show the best approach on several turns. They work in a similar way as the original blue line, but there are a few differences:
 
