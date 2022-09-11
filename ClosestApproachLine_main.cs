@@ -10,15 +10,27 @@ namespace ClosestApproachLine
         const string C_STR_MOD_ID = "CLOSEST_APPROACH_LINE";
         const string C_STR_MOD_NAME = "Closest approach line";
         const string C_STR_AUTHOR = "Altaïr";
-        const string C_STR_MODLOADER_VERSION = "0.5.7";
-        const string C_STR_MOD_VERSION = "V2.1";
+        const string C_STR_MODLOADER_VERSION = "1.5.7";
+        const string C_STR_MOD_VERSION = "V2.3";
         const string C_STR_MOD_DESCRIPTION = "This mod adds a closest approach line when navigation is active.";
 
+        public override string ModNameID => C_STR_MOD_ID;
 
-        public Main() : base(C_STR_MOD_ID, C_STR_MOD_NAME, C_STR_AUTHOR, C_STR_MODLOADER_VERSION, C_STR_MOD_VERSION, C_STR_MOD_DESCRIPTION)
+        public override string DisplayName => C_STR_MOD_NAME;
+
+        public override string Author => C_STR_AUTHOR;
+
+        public override string MinimumGameVersionNecessary => C_STR_MODLOADER_VERSION;
+
+        public override string ModVersion => C_STR_MOD_VERSION;
+
+        public override string Description => C_STR_MOD_DESCRIPTION;
+
+
+        public Main() : base()
         {
-            //Harmony.DEBUG = false;
-            //FileLog.logPath = "C:\\Users\\JB\\Desktop\\Jeux\\SFS PC\\ClosestApproachLine\\ClosestApproachLine\\Logs_ClosestApproachLine.txt";
+            Harmony.DEBUG = false;
+            FileLog.logPath = "C:\\Users\\JB\\Desktop\\Jeux\\SFS PC\\ClosestApproachLine\\ClosestApproachLine\\Logs_ClosestApproachLine.txt";
             //FileLog.Log("TRACES ACTIVATED"); // logs available in harmony.log.txt on desktop
         }
 
@@ -41,12 +53,6 @@ namespace ClosestApproachLine
             Main.patcher.PatchAll();
 
             //base.early_load();
-        }
-
-        public override void Unload()
-        {
-            // This method runs if your mod gets unloaded. This shouldn't happen, so it throws an error.
-            throw new NotImplementedException();
         }
     }
 }

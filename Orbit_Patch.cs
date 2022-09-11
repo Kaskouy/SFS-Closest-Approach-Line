@@ -137,7 +137,7 @@ public class Orbit_GetVelocityAtTrueAnomaly_Patch
 	}
 
 	[HarmonyPostfix]
-	public static Double2 GetVelocityAtTrueAnomaly_Postfix(Double2 __result, Orbit __instance, double trueAnomaly)
+	public static /*Double2*/ void GetVelocityAtTrueAnomaly_Postfix(ref Double2 __result, Orbit __instance, double trueAnomaly)
     {
 		double angularMomentum = Orbit_Utils.GetAngularMomentum(__instance);
 		double specificEnergy = Orbit_Utils.GetSpecificEnergy(__instance);
@@ -145,16 +145,21 @@ public class Orbit_GetVelocityAtTrueAnomaly_Patch
 		double normalizedTrueAnomaly = Kepler.NormalizeAngle(trueAnomaly);
 		double radiusAtTrueAnomaly = Kepler.GetRadiusAtTrueAnomaly(__instance.slr, __instance.ecc, normalizedTrueAnomaly);
 
+		
 		double V_theta = angularMomentum / radiusAtTrueAnomaly;
 		double V2 = 2.0 * (specificEnergy + __instance.Planet.mass / radiusAtTrueAnomaly);
 		double V_r2 = Math.Max(V2 - V_theta * V_theta, 0.0);
 		double V_r = Math.Sqrt(V_r2);
 
-		if (Math.Sign(normalizedTrueAnomaly) != __instance.direction) { V_r = -V_r; }
+		int sign = 1;
+		if(normalizedTrueAnomaly < 0.0) { sign = -1; }
+		//if (Math.Sign(normalizedTrueAnomaly) != __instance.direction) { V_r = -V_r; } // For some obscure reasons, calling Math.Sign(normalizedTrueAnomaly) sometimes causes problems (orbits blinking)
+		if (sign != __instance.direction) { V_r = -V_r; }
 
 		Double2 velocity = new Double2(V_r, V_theta);
 		velocity = velocity.Rotate(normalizedTrueAnomaly + __instance.arg);
-		return velocity;
+		//return velocity;
+		__result = velocity;
 	}
 }
 

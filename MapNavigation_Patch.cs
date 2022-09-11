@@ -13,6 +13,7 @@ public class MapNavigation_SetTarget_Patch
 	public static void SetTarget_postfix()
     {
 		ClosestApproachCalculator.resetLastApproachDataValidity();
+		ClosestApproachCalculator.resetLastApproachDataValidity_MultiTurn();
 	}
 }
 
@@ -23,6 +24,7 @@ public class MapNavigation_ToggleTarget_Patch
 	public static void ToggleTarget_postfix()
 	{
 		ClosestApproachCalculator.resetLastApproachDataValidity();
+		ClosestApproachCalculator.resetLastApproachDataValidity_MultiTurn();
 	}
 }
 
@@ -36,6 +38,7 @@ public class MapNavigation_OnPlayerChange_Patch
 	{
 		ClosestApproachCalculator.setPlayer(newPlayer);
 		ClosestApproachCalculator.resetLastApproachDataValidity();
+		ClosestApproachCalculator.resetLastApproachDataValidity_MultiTurn();
 	}
 }
 
@@ -95,6 +98,38 @@ public class MapNavigation_Patch
 
 			ClosestApproachLine_Utils.DrawDashedLine(playerOrbit, approachData.locPlayer, approachData.locTarget, lineColor, null, closestApproachText);
 		}
+
+		// Evolution: calculate closest approach on several turns
+		// ------------------------------------------------------
+		uint nbTurns1 = 0, nbTurns2 = 0;
+		ClosestApproachCalculator.T_ApproachData approachData_multi1, approachData_multi2;
+		ClosestApproachCalculator.CalculateClosestApproach_MultiTurn(playerOrbit, targetOrbit, out approachData_multi1, out nbTurns1, out approachData_multi2, out nbTurns2);
+
+		Color lighGreen = new Color(0.706f, 1.0f, 0.902f, 0.8f); // light green
+
+		// Show approach line for node 1
+		if (approachData_multi1.validity && nbTurns1 > 1) // don't show it if nbTurns is 1, would be redundant with classic closest approach line
+        {
+			string closestApproachText = "Best approach: " + approachData_multi1.dist.ToDistanceString() + " (" + nbTurns1 + " turns)";
+
+			ClosestApproachLine_Utils.DrawDashedLine(playerOrbit, approachData_multi1.locPlayer, approachData_multi1.locTarget, lighGreen, null, closestApproachText);
+		}
+		/*else if(approachData_multi1.validity)
+        {
+			FileLog.Log("Approach1 on next turn");
+        }*/
+
+		// Show approach line for node 2
+		if (approachData_multi2.validity && nbTurns2 > 1) // don't show it if nbTurns is 1, would be redundant with classic closest approach line
+		{
+			string closestApproachText = "Best approach: " + approachData_multi2.dist.ToDistanceString() + " (" + nbTurns2 + " turns)";
+
+			ClosestApproachLine_Utils.DrawDashedLine(playerOrbit, approachData_multi2.locPlayer, approachData_multi2.locTarget, lighGreen, null, closestApproachText);
+		}
+		/*else if (approachData_multi2.validity)
+		{
+			FileLog.Log("Approach2 on next turn");
+		}*/
 	}
 
 

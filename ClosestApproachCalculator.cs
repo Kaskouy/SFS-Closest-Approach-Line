@@ -23,6 +23,15 @@ public class ClosestApproachCalculator
 	private static double lastApproachCalculationDate = -1.0;
 	private static T_ApproachData lastApproachData = new T_ApproachData();
 
+	// data to memorize the latest approach data and how much time it's valid, for the multi-turn approach
+	private static double lastApproacMultiTurnCalculationDate = -1.0;
+	private static bool lastApproachMultiTurnValid1 = false;
+	private static T_ApproachData lastApproachData_MultiTurn1 = new T_ApproachData();
+	private static uint lastApproachData_nbTurns1 = 0;
+	private static bool lastApproachMultiTurnValid2 = false;
+	private static T_ApproachData lastApproachData_MultiTurn2 = new T_ApproachData();
+	private static uint lastApproachData_nbTurns2 = 0;
+
 	// Once the closest approach data has been calculated, it's considered valid for that many seconds before we recalculate it (unless something changes...)
 	private const double C_APPROACH_DATA_TIME_VALIDITY = 2.0;
 
@@ -78,6 +87,66 @@ public class ClosestApproachCalculator
 			return true;
 		}
 	}
+
+
+	public static void resetLastApproachDataValidity_MultiTurn()
+	{
+		lastApproacMultiTurnCalculationDate = -1.0;
+		lastApproachMultiTurnValid1 = false;
+		lastApproachData_MultiTurn1 = new T_ApproachData();
+		lastApproachData_MultiTurn1.validity = false;
+		lastApproachData_nbTurns1 = 0;
+		lastApproachMultiTurnValid2 = false;
+		lastApproachData_MultiTurn2 = new T_ApproachData();
+		lastApproachData_MultiTurn2.validity = false;
+		lastApproachData_nbTurns2 = 0;
+	}
+
+	private static void memorizeLastApproachData_MultiTurn(T_ApproachData approachData1, uint nbTurns1, T_ApproachData approachData2, uint nbTurns2)
+	{
+		lastApproacMultiTurnCalculationDate = WorldTime.main.worldTime;
+		lastApproachMultiTurnValid1 = true;
+		lastApproachData_MultiTurn1 = approachData1;
+		lastApproachData_nbTurns1 = nbTurns1;
+		lastApproachMultiTurnValid2 = true;
+		lastApproachData_MultiTurn2 = approachData2;
+		lastApproachData_nbTurns2 = nbTurns2;
+	}
+
+	private static bool approachDataNeedsRecalculation_MultiTurn()
+	{
+		if (!lastApproachMultiTurnValid1 || !lastApproachMultiTurnValid2)
+		{
+			// last approach is not valid (player has just loaded the game, he just switched target...) --> needs to be calculated
+			return true;
+		}
+
+		if ((thePlayer != null) && (thePlayer is Rocket rocket))
+		{
+			bool enginesOn = (rocket.throttle.output_Throttle.Value > 0.0);
+			bool rcsOn = (rocket.arrowkeys.rcs.Value == true);
+			bool timeOut = (WorldTime.main.worldTime > lastApproacMultiTurnCalculationDate + C_APPROACH_DATA_TIME_VALIDITY);
+
+			if (enginesOn || rcsOn || timeOut)
+			{
+				// engines/RCS are on, the player is changing his trajectory --> instantly recompute approach data to let him follow accurately the situation
+				// ...Or the latest data is too old.
+				return true;
+			}
+			else
+			{
+				// the player is not modifying his trajectory, and the latest information is still recent enough --> No recalculation
+				return false;
+			}
+		}
+		else
+		{
+			// kinda unexpected, return true by default (--> recalculate closest approach)
+			return true;
+		}
+	}
+
+
 
 	private static T_ApproachData GetApproachAtDate(Orbit orbit_A, Orbit orbit_B, double time)
 	{
@@ -165,6 +234,90 @@ public class ClosestApproachCalculator
 		return GetApproachAtDate(orbit_A, orbit_B, time);
 	}
 
+	private static T_ApproachData getApproachData_CubicApproximation(Orbit orbit_A, Orbit orbit_B, T_ApproachData approachData1, T_ApproachData approachData2)
+    {
+		double deltaX = approachData2.date - approachData1.date;
+		double p = (approachData2.dist - approachData1.dist) / deltaX;
+
+		double a = 3 * (approachData2.relSpeed + approachData1.relSpeed - 2.0 * p) / (deltaX * deltaX);
+		double b = 2 * (3.0 * p - approachData2.relSpeed - 2.0 * approachData1.relSpeed) / deltaX;
+		double c = approachData1.relSpeed;
+
+		double delta = b * b - 4.0 * a * c;
+
+		if(delta < 0.0)
+        {
+			//FileLog.Log("getApproachData_CubicApproximation : ERROR : delta < 0.0");
+			return getApproachData_DichotomicMethod(orbit_A, orbit_B, approachData1, approachData2); // better than nothing...
+		}
+        else
+        {
+			double new_time;
+
+			new_time = approachData1.date + (-b + Math.Sqrt(delta)) / (2.0 * a);
+
+			if((new_time < approachData1.date) || (new_time > approachData2.date))
+            {
+				//FileLog.Log("getApproachData_CubicApproximation : ERROR : new time out of range");
+				//FileLog.Log("getApproachData_CubicApproximation : A = " + a + "; B = " + b + "; C = " + c);
+				//FileLog.Log("getApproachData_CubicApproximation : delta = " + delta);
+				//FileLog.Log("getApproachData_CubicApproximation : time1 = " + approachData1.date + "; time2 = " + approachData2.date + "; new time = " + new_time);
+				return getApproachData_DichotomicMethod(orbit_A, orbit_B, approachData1, approachData2); // better than nothing...
+			}
+            else
+            {
+				T_ApproachData newApproachData = GetApproachAtDate(orbit_A, orbit_B, new_time);
+
+				double q = 2.0 * a * (new_time - approachData1.date) + b;
+
+				//FileLog.Log("getApproachData_CubicApproximation : q  = " + q);
+				//FileLog.Log("getApproachData_CubicApproximation : new_time  = " + new_time + "; rel_speed  = " + newApproachData.relSpeed);
+
+				return GetApproachAtDate(orbit_A, orbit_B, new_time);
+			}
+        }
+	}
+
+	private static T_ApproachData getApproachData_SmartCutStrategy(Orbit orbit_A, Orbit orbit_B, T_ApproachData approachData1, T_ApproachData approachData2)
+    {
+		double newTime;
+
+		if (Math.Abs(approachData1.relSpeed) < Math.Abs(approachData2.relSpeed))
+        {
+			newTime = approachData1.date + (approachData2.date - approachData1.date) / 8.0;
+		}
+		else
+        {
+			newTime = approachData2.date - (approachData2.date - approachData1.date) / 8.0;
+		}
+
+		return GetApproachAtDate(orbit_A, orbit_B, newTime);
+	}
+
+	private static T_ApproachData getApproachData_LinerarMovementApproximation(Orbit orbit_A, Orbit orbit_B, T_ApproachData approachData1, T_ApproachData approachData2)
+    {
+		// Consists in approximating the movement as a linear one. It's equivalent to neglecting gravity.
+		// It's ok if the objects are close to eachother, it can work great in those cases. Otherwise, it can be very bad!
+		
+		// Position of target with respect to the player at time 1 and time 2
+		Double2 P1 = approachData1.locTarget.position - approachData1.locPlayer.position;
+		Double2 P2 = approachData2.locTarget.position - approachData2.locPlayer.position;
+
+		Double2 P1P2 = P2 - P1;
+
+		double Tau = -Double2.Dot(P1, P1P2) / Math.Pow(P1P2.magnitude, 2.0);
+
+		double new_time = approachData1.date + Tau * (approachData2.date - approachData1.date);
+
+		T_ApproachData newApproachData = GetApproachAtDate(orbit_A, orbit_B, new_time);
+		
+		//FileLog.Log("getApproachData_LinerarMovementApproximation : Tau = " + Tau);
+		//FileLog.Log("getApproachData_LinerarMovementApproximation : Time1 = " + approachData1.date + "; Time2 = " + approachData2.date + "; NewTime = " + newApproachData.date);
+		//FileLog.Log("getApproachData_LinerarMovementApproximation : Dist1 = " + approachData1.dist + "; Dist2 = " + approachData2.dist + "; NewDist = " + newApproachData.dist);
+		//FileLog.Log("getApproachData_LinerarMovementApproximation : Vel1  = " + approachData1.relSpeed + "; Vel2  = " + approachData2.relSpeed + "; NewVel  = " + newApproachData.relSpeed);
+
+		return newApproachData;
+	}
 
 	private static bool isLocalMinimum(T_ApproachData approachData)
     {
@@ -260,21 +413,28 @@ public class ClosestApproachCalculator
 
 			// Calculate next approximation
 			// ----------------------------
-			if (max_relSpeed < 2.0 * min_relSpeed)
+			if (max_relSpeed < 63.0 * min_relSpeed)
 			{
 				// relative speeds at bounds are relatively close -> use the more precise quadratic approximation
-				approachData = getApproachData_QuadraticApproximation(orbit_A, orbit_B, loc_ApproachData1, loc_ApproachData2);
+				//approachData = getApproachData_QuadraticApproximation(orbit_A, orbit_B, loc_ApproachData1, loc_ApproachData2);
+				approachData = getApproachData_CubicApproximation(orbit_A, orbit_B, loc_ApproachData1, loc_ApproachData2);
+				//FileLog.Log("   Cubic approx!");
+				//FileLog.Log("calculateMinimalApproachBetweenTwoDates : Time1 = " + loc_ApproachData1.date + "; Time2 = " + loc_ApproachData2.date + "; NewTime = " + approachData.date);
+				//FileLog.Log("calculateMinimalApproachBetweenTwoDates : Dist1 = " + loc_ApproachData1.dist + "; Dist2 = " + loc_ApproachData2.dist + "; NewDist = " + approachData.dist);
+				//FileLog.Log("calculateMinimalApproachBetweenTwoDates : Vel1  = " + loc_ApproachData1.relSpeed + "; Vel2  = " + loc_ApproachData2.relSpeed + "; NewVel  = " + approachData.relSpeed);
+				
 			}
-			else
+            else 
 			{
-				// relative speeds are significantly different -> calculate the medium value, as the quadratic approximation wouldn't allow much progress
-				approachData = getApproachData_DichotomicMethod(orbit_A, orbit_B, loc_ApproachData1, loc_ApproachData2);
+				//FileLog.Log("   Smart cut!");
+				approachData = getApproachData_SmartCutStrategy(orbit_A, orbit_B, loc_ApproachData1, loc_ApproachData2);
 			}
 
 			// If answer found with a satisfying precision, bye bye!
 			// -----------------------------------------------------
-			if(isLocalMinimum(approachData))
+			if (isLocalMinimum(approachData))
 			{
+				//FileLog.Log(" Nb iterations = " + nbIterations);
 				return approachData;
 			}
 
@@ -524,6 +684,110 @@ public class ClosestApproachCalculator
 				return lastApproachData;
 			}
 		}
+	}
+
+
+	public static void CalculateClosestApproach_MultiTurn(Orbit orbit_A, Orbit orbit_B, out T_ApproachData bestApproachData1, out uint nbTurns1, out T_ApproachData bestApproachData2, out uint nbTurns2)
+    {
+		if (!approachDataNeedsRecalculation_MultiTurn())
+		{
+			// Skip calculations and return last result
+			nbTurns1 = lastApproachData_nbTurns1;
+			bestApproachData1 = lastApproachData_MultiTurn1; 
+			nbTurns2 = lastApproachData_nbTurns2;
+			bestApproachData2 = lastApproachData_MultiTurn2;
+            return;
+		}
+
+		// Check that both orbits have no encounter/escape event scheduled
+		if ( (orbit_A.pathType != PathType.Eternal) || (orbit_B.pathType != PathType.Eternal))
+        {
+			// return invalid data
+			nbTurns1 = 0;
+			bestApproachData1 = lastApproachData_MultiTurn1;
+			nbTurns2 = 0;
+			bestApproachData2 = lastApproachData_MultiTurn2;
+			return;
+		}
+
+		double angleIntersection1, angleIntersection2;
+
+		bool intersects = Intersection.GetIntersectionAngles(orbit_A, orbit_B, out angleIntersection1, out angleIntersection2);
+
+		// If the orbit don't intersect, don't calculate anything
+		if(!intersects)
+        {
+			// return invalid data
+			nbTurns1 = 0;
+			bestApproachData1 = lastApproachData_MultiTurn1;
+			nbTurns2 = 0;
+			bestApproachData2 = lastApproachData_MultiTurn2;
+			return;
+		}
+
+		// Calculate start time (can be now if it's about the current trajectory, or in the future if it's an anticipated trajectory)
+		// --------------------
+		double start_time = WorldTime.main.worldTime;
+
+		if (start_time < orbit_A.orbitStartTime)
+		{
+			start_time = orbit_A.orbitStartTime;
+		}
+
+		const uint NB_MAX_TURNS = 20;
+
+		double weightedBestApproach1 = 0, weightedBestApproach2 = 0;
+		double curStartTime = start_time + orbit_A.period; // to start after one period
+
+		// Initialization
+		bestApproachData1 = new T_ApproachData();
+		bestApproachData2 = new T_ApproachData();
+		bestApproachData1.validity = false;
+		bestApproachData2.validity = false;
+		nbTurns1 = nbTurns2 = 0;
+
+		// Calculate approach at each node on each turn and memorize the best
+		// ------------------------------------------------------------------
+		for (uint i_turn = 2; i_turn <= NB_MAX_TURNS; i_turn++)
+        {
+			T_ApproachData curApproachData1 = GetApproachAtArgument(orbit_A, orbit_B, curStartTime, angleIntersection1);
+			T_ApproachData curApproachData2 = GetApproachAtArgument(orbit_A, orbit_B, curStartTime, angleIntersection2);
+
+			if(i_turn == 2)
+            {
+				// first iteration
+				nbTurns1 = i_turn;
+				nbTurns2 = i_turn;
+				weightedBestApproach1 = Math.Sqrt(i_turn) * curApproachData1.dist;
+				weightedBestApproach2 = Math.Sqrt(i_turn) * curApproachData2.dist;
+				bestApproachData1 = curApproachData1;
+				bestApproachData2 = curApproachData2;
+			}
+			else
+            {
+				double cur_weightedBestApproach1 = Math.Sqrt(i_turn) * curApproachData1.dist;
+				double cur_weightedBestApproach2 = Math.Sqrt(i_turn) * curApproachData2.dist;
+
+				if(cur_weightedBestApproach1 < weightedBestApproach1)
+                {
+					weightedBestApproach1 = cur_weightedBestApproach1;
+					nbTurns1 = i_turn;
+					bestApproachData1 = curApproachData1;
+				}
+
+				if (cur_weightedBestApproach2 < weightedBestApproach2)
+				{
+					weightedBestApproach2 = cur_weightedBestApproach2;
+					nbTurns2 = i_turn;
+					bestApproachData2 = curApproachData2;
+				}
+			}
+
+			// For next loop: search for the next revolution
+			curStartTime += orbit_A.period;
+		}
+
+		memorizeLastApproachData_MultiTurn(bestApproachData1, nbTurns1, bestApproachData2, nbTurns2);
 	}
 
 }
