@@ -94,7 +94,7 @@ public class MapNavigation_Patch
 			// If a valid approach is found, display it
 			// ----------------------------------------
 			Color lineColor = ClosestApproachLine_Utils.GetClosestApproachLineColor(approachData.dist);
-			string closestApproachText = ClosestApproachLine_Utils.GetClosestApproachText(approachData.dist, approachData.date);
+			string closestApproachText = ClosestApproachLine_Utils.GetClosestApproachText(approachData.dist, ClosestApproachCalculator.GetApproachSpeed(approachData), approachData.date);
 
 			ClosestApproachLine_Utils.DrawDashedLine(playerOrbit, approachData.locPlayer, approachData.locTarget, lineColor, null, closestApproachText);
 		}
@@ -103,7 +103,7 @@ public class MapNavigation_Patch
 		// ------------------------------------------------------
 		uint nbTurns1 = 0, nbTurns2 = 0;
 		ClosestApproachCalculator.T_ApproachData approachData_multi1, approachData_multi2;
-		ClosestApproachCalculator.CalculateClosestApproach_MultiTurn(playerOrbit, targetOrbit, out approachData_multi1, out nbTurns1, out approachData_multi2, out nbTurns2);
+		ClosestApproachCalculator.CalculateClosestApproach_MultiTurn(playerOrbit, targetOrbit, approachData, out approachData_multi1, out nbTurns1, out approachData_multi2, out nbTurns2);
 
 		Color lighGreen = new Color(0.706f, 1.0f, 0.902f, 0.8f); // light green
 

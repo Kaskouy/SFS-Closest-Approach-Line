@@ -7,22 +7,29 @@ using UnityEngine;
 // -----------------
 public class ClosestApproachLine_Utils
 {
-	public static string GetClosestApproachText(double approachDistance, double approachTime)
+	public static string GetClosestApproachText(double approachDistance, double approachSpeed, double approachTime)
 	{
 		string closestApproachText = "closest approach: " + approachDistance.ToDistanceString();
 		double durationBeforeApproach = approachTime - WorldTime.main.worldTime;
 
+		const double C_MAX_DISTANCE_SHOW_TIMER = 5000.0;
+
 		// Display the remaining time 
-		if ((durationBeforeApproach < 60.0) && (durationBeforeApproach > 0.0))
+		if ((approachDistance < C_MAX_DISTANCE_SHOW_TIMER) && (durationBeforeApproach < 60.0) && (durationBeforeApproach > 0.0))
 		{
+			bool showDecimals = (approachSpeed < 10.0) ? true : false;
+			string speedText = Units.ToVelocityString(approachSpeed, showDecimals);
+			
 			if (durationBeforeApproach < 1.0)
 			{
-				closestApproachText = closestApproachText + " (T-0s)";
+				closestApproachText = closestApproachText + " (ΔV = " + speedText + "; T-0s)";
 			}
 			else
 			{
-				closestApproachText = closestApproachText + " (T-" + Units.ToTimestampString(durationBeforeApproach, true, false) + ")";
+				closestApproachText = closestApproachText + " (ΔV = " + speedText + "; T-" + Units.ToTimestampString(durationBeforeApproach, true, false) + ")";
 			}
+
+			//ToVelocityString(this double a, bool decimals = true)
 		}
 
 		return closestApproachText;
