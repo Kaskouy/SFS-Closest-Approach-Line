@@ -43,7 +43,10 @@ public class ClosestApproachLine_Utils
 		}
 		else if (distance > 20.0)
 		{
-			return new Color(1.0f, 0.549f, 0.235f, 0.8f); // orange
+			Color orange = new Color(1.0f, 0.549f, 0.235f, 0.8f);
+			Color red = new Color(1.0f, 0.1f, 0.0f, 0.8f);
+			//return new Color(1.0f, 0.549f, 0.235f, 0.8f); // orange
+			return Color.Lerp(red, orange, (float)((distance - 20.0) / (100.0 - 20.0)));
 		}
 		else
 		{

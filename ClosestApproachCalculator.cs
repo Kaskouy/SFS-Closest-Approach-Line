@@ -869,6 +869,60 @@ public class ClosestApproachCalculator
 	}
 
 
+	// ---------------------------------------------------------------------------------------------
+	// ------                   CalculateClosestApproachOnShortPeriod                        -------
+	// ---------------------------------------------------------------------------------------------
+	// This function calculates the closest approach on a short duration from the current date.
+	// This is intended to parameterize the velocity arrow during the final approach.
+	// The calculation of the closest approach is very simplified, because we assume the research is
+	// made on a small period of time.
+	// ---------------------------------------------------------------------------------------------
+	public static T_ApproachData CalculateClosestApproachOnShortPeriod(Orbit orbit_A, Orbit orbit_B, double search_period)
+    {
+		double start_time = WorldTime.main.worldTime;
+		double end_time = start_time + search_period;
+
+		// Check if conditions are valid: both orbits are defined in the time period specified
+		if ((start_time < orbit_A.orbitStartTime) || (start_time < orbit_B.orbitStartTime))
+		{
+			// One of the orbit only starts in the future; return invalid value
+			T_ApproachData approachData = new T_ApproachData();
+			approachData.validity = false;
+			return approachData;
+		}
+
+		if((end_time > orbit_A.orbitEndTime) || (end_time > orbit_B.orbitEndTime))
+        {
+			// One of the orbit ends before the end of the specified period; return invalid value
+			T_ApproachData approachData = new T_ApproachData();
+			approachData.validity = false;
+			return approachData;
+		}
+
+		// Get the approach data at start and end time
+		T_ApproachData approachData_start = GetApproachAtDate(orbit_A, orbit_B, start_time);
+		T_ApproachData approachData_end = GetApproachAtDate(orbit_A, orbit_B, end_time);
+
+		if( (approachData_start.sepSpeed > 0.0) || (approachData_end.sepSpeed < 0.0) )
+        {
+			// No minimum in the specified interval; return invalid value
+			T_ApproachData approachData = new T_ApproachData();
+			approachData.validity = false;
+			return approachData;
+		}
+
+		// A minimum exists: calculate and returns it directly
+		
+		if ( (approachData_start.locTarget.velocity - approachData_start.locPlayer.velocity).magnitude <  20.0)
+        {
+			return getApproachData_LinearMovementApproximation(orbit_A, orbit_B, approachData_start, approachData_end, true);
+		}
+        else 
+		{
+			return calculateMinimalApproachBetweenDates(orbit_A, orbit_B, approachData_start, approachData_end);
+		}
+	}
+
 
 	// -----------------------------------------------------------------------------------------------------
 	// FUNCTIONS FOR THE MULTI-TURNS APPROACH

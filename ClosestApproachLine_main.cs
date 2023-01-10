@@ -10,8 +10,8 @@ namespace ClosestApproachLine
         const string C_STR_MOD_ID = "CLOSEST_APPROACH_LINE";
         const string C_STR_MOD_NAME = "Closest approach line";
         const string C_STR_AUTHOR = "Altaïr";
-        const string C_STR_MODLOADER_VERSION = "1.5.8.5";
-        const string C_STR_MOD_VERSION = "v2.4";
+        const string C_STR_MODLOADER_VERSION = "1.5.9.8";
+        const string C_STR_MOD_VERSION = "v2.5";
         const string C_STR_MOD_DESCRIPTION = "This mod adds a closest approach line when navigation is active.";
 
         public override string ModNameID => C_STR_MOD_ID;
@@ -30,7 +30,7 @@ namespace ClosestApproachLine
         public Main() : base()
         {
             Harmony.DEBUG = false;
-            //FileLog.logPath = "C:\\Users\\JB\\Desktop\\Jeux\\SFS PC\\ClosestApproachLine\\ClosestApproachLine\\Logs_ClosestApproachLine.txt";
+            FileLog.logPath = "C:\\Users\\JB\\Desktop\\Jeux\\SFS PC\\ClosestApproachLine\\ClosestApproachLine\\Logs_ClosestApproachLine.txt";
             //FileLog.Log("TRACES ACTIVATED"); // logs available in harmony.log.txt on desktop
         }
 

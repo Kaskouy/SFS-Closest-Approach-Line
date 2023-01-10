@@ -153,7 +153,7 @@ public class Orbit_GetVelocityAtTrueAnomaly_Patch
 
 		int sign = 1;
 		if(normalizedTrueAnomaly < 0.0) { sign = -1; }
-		//if (Math.Sign(normalizedTrueAnomaly) != __instance.direction) { V_r = -V_r; } // For some obscure reasons, calling Math.Sign(normalizedTrueAnomaly) sometimes causes problems (orbits blinking)
+		//if (Math.Sign(normalizedTrueAnomaly) != __instance.direction) { V_r = -V_r; } // Sometimes trueAnomaly is NaN, so is normalizedTrueAnomaly and Math.Sign causes an exception in this case, which causes orbits to blink
 		if (sign != __instance.direction) { V_r = -V_r; }
 
 		Double2 velocity = new Double2(V_r, V_theta);
