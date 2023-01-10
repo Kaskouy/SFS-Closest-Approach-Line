@@ -17,3 +17,12 @@ When the player orbit intersects with the targeted orbit, the game also shows 2 
 - Nothing will be shown if the orbits don't intersect. This is intended.
 - The green line always shows an approach over at least 2 turns. Once there's less than 1 turn remaining, the green line is recalculated at a later date, the more precise blue line is to be used to handle the final approach.
 - The best approach is calculated over at most 20 turns. The calculation of the best approach also tries to minimize the number of turns to avoid excessive time-warping. In short, it won't make you time-warp over many extra turns for just a slightly better result. Your ΔV matters, but your time matters more at some point
+
+
+# New feature in V2.5: New concept of docking arrows using the closest approach information
+
+From now on, when the target enters in the neighborhood of the player ship, the velocity arrow is replaced by two arrows:
+- A velocity arrow that shows the target's velocity relative to you. That arrow will glow blue to show the player the direction in which he should burn to cancel his relative velocity.
+- A closest distance arrow that indicates when and where the targeted ship will be at its closest point
+
+That tool is intended to make the encounter very predictable and give the player all the information he needs without having to switch to the map view.
