@@ -877,11 +877,10 @@ public class ClosestApproachCalculator
 	// The calculation of the closest approach is very simplified, because we assume the research is
 	// made on a small period of time.
 	// ---------------------------------------------------------------------------------------------
-	public static T_ApproachData CalculateClosestApproachOnShortPeriod(Orbit orbit_A, Orbit orbit_B, double search_period)
+	public static T_ApproachData CalculateClosestApproachOnShortPeriod(Orbit orbit_A, Orbit orbit_B, double start_time, double end_time)
     {
-		double start_time = WorldTime.main.worldTime;
-		double end_time = start_time + search_period;
-
+		// VALIDITY CONTROLS
+		// -----------------
 		// Check if conditions are valid: both orbits are defined in the time period specified
 		if ((start_time < orbit_A.orbitStartTime) || (start_time < orbit_B.orbitStartTime))
 		{
@@ -891,17 +890,32 @@ public class ClosestApproachCalculator
 			return approachData;
 		}
 
-		if((end_time > orbit_A.orbitEndTime) || (end_time > orbit_B.orbitEndTime))
+		// Cap the end time value in the case where the orbits would end soon
+		double actual_end_time = end_time;
+
+		if(actual_end_time > orbit_A.orbitEndTime)
         {
-			// One of the orbit ends before the end of the specified period; return invalid value
+			actual_end_time = orbit_A.orbitEndTime;
+        }
+
+		if (actual_end_time > orbit_B.orbitEndTime)
+		{
+			actual_end_time = orbit_B.orbitEndTime;
+		}
+
+		// Check that dates are consistent
+		if (start_time > actual_end_time)
+		{
 			T_ApproachData approachData = new T_ApproachData();
 			approachData.validity = false;
 			return approachData;
 		}
 
+		// CALCULATE CLOSEST APPROACH
+		// --------------------------
 		// Get the approach data at start and end time
 		T_ApproachData approachData_start = GetApproachAtDate(orbit_A, orbit_B, start_time);
-		T_ApproachData approachData_end = GetApproachAtDate(orbit_A, orbit_B, end_time);
+		T_ApproachData approachData_end = GetApproachAtDate(orbit_A, orbit_B, actual_end_time);
 
 		if( (approachData_start.sepSpeed > 0.0) || (approachData_end.sepSpeed < 0.0) )
         {
@@ -912,9 +926,13 @@ public class ClosestApproachCalculator
 		}
 
 		// A minimum exists: calculate and returns it directly
-		
-		if ( (approachData_start.locTarget.velocity - approachData_start.locPlayer.velocity).magnitude <  20.0)
+		double relativeSpeed = (approachData_start.locTarget.velocity - approachData_start.locPlayer.velocity).magnitude;
+		double distance = (approachData_start.locTarget.position - approachData_start.locPlayer.position).magnitude;
+
+		if ( (relativeSpeed <  20.0) && (distance < 2000.0)) 
         {
+			// At close distance and low speed, we apply a single linear approximation
+			// (this is because very low speeds tend to make skip the calculation since the separation speed is practically null then)
 			return getApproachData_LinearMovementApproximation(orbit_A, orbit_B, approachData_start, approachData_end, true);
 		}
         else 

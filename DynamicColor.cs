@@ -3,14 +3,15 @@ using UnityEngine;
 
 public class DynamicColor
 {
-	public enum E_BLINKING_TYPE
+	public enum E_BLINKING_MODE
     {
+        BLINKING_NONE,
         BLINKING_BINARY,
         BLINKING_REGULAR,
         BLINKING_SMOOTH
     }
 
-    // Pre-computed colors - colors "2" are 10% darker than the original
+    // Pre-computed colors - colors "2" have 60% of opacity unlike the original (100%)
     public enum E_COLOR
     {
         RED,
@@ -34,12 +35,12 @@ public class DynamicColor
     }
 
     private float _blinking_period;
-    private E_BLINKING_TYPE _blinking_type;
+    private E_BLINKING_MODE _blinking_type;
     private Color _dark_color;
     private Color _light_color;
     private float _time;
 
-    public DynamicColor(Color darkColor, Color lightColor, E_BLINKING_TYPE blinkingType, float blinkingPeriod)
+    public DynamicColor(Color lightColor, Color darkColor, E_BLINKING_MODE blinkingType, float blinkingPeriod)
     {
         _dark_color = darkColor;
         _light_color = lightColor;
@@ -48,7 +49,7 @@ public class DynamicColor
         _time = Time.time;
     }
 
-    public DynamicColor(E_COLOR color, E_BLINKING_TYPE blinkingType, float blinkingPeriod)
+    public DynamicColor(E_COLOR color, E_BLINKING_MODE blinkingType, float blinkingPeriod)
     {
         _dark_color = darkColorsArray[(int)color];
         _light_color = lightColorsArray[(int)color];
@@ -57,8 +58,30 @@ public class DynamicColor
         _time = Time.time;
     }
 
+    public void changeBlinkingMode(E_BLINKING_MODE blinkingType, float blinkingPeriod)
+    {
+        _blinking_type = blinkingType;
+        _blinking_period = Mathf.Max(0.1f, blinkingPeriod);
+    }
+
+    public void changeColor(Color lightColor, Color darkColor)
+    {
+        _light_color = lightColor;
+        _dark_color = darkColor;
+    }
+
+    public void changeColor(E_COLOR color)
+    {
+        _light_color = lightColorsArray[(int)color];
+        _dark_color = darkColorsArray[(int)color];
+    }
+
     public Color getColor()
     {
+        // case of fixed color
+        if (_blinking_type == E_BLINKING_MODE.BLINKING_NONE) return _light_color;
+
+        // Otherwise apply the blinking process
         float currentTime = Time.time;
 
         while(currentTime > _time + _blinking_period)
@@ -73,6 +96,11 @@ public class DynamicColor
         return Color.Lerp(_dark_color, _light_color, colorIntensity);
     }
 
+    public void restartBlinkingProcess()
+    {
+        _time = Time.time;
+    }
+
     private float calulateColorIntensity(float theCurrentFractionOfPeriod)
     {
         float currentFractionOfPeriod = Mathf.Clamp01(theCurrentFractionOfPeriod);
@@ -81,31 +109,45 @@ public class DynamicColor
 
         switch (_blinking_type)
         {
-            case E_BLINKING_TYPE.BLINKING_REGULAR:
+            case E_BLINKING_MODE.BLINKING_REGULAR:
                 if (currentFractionOfPeriod < 0.5f)
                 {
-                    colorIntensity = 2.0f * currentFractionOfPeriod;
+                    colorIntensity = 1.0f - 2.0f * currentFractionOfPeriod;
                 }
                 else
                 {
-                    colorIntensity = 2.0f * (1.0f - currentFractionOfPeriod);
+                    colorIntensity = 2.0f * currentFractionOfPeriod - 1.0f;
                 }
                 break;
 
-            case E_BLINKING_TYPE.BLINKING_SMOOTH:
-                colorIntensity = 4.0f * currentFractionOfPeriod * (1.0f - currentFractionOfPeriod);
+            case E_BLINKING_MODE.BLINKING_SMOOTH:
+                float x;
+                
+                if(currentFractionOfPeriod > 0.5f)
+                {
+                    x = currentFractionOfPeriod - 0.5f;
+                }
+                else
+                {
+                    x = currentFractionOfPeriod + 0.5f;
+                }
+                colorIntensity = 4.0f * x * (1.0f - x);
                 break;
 
-            case E_BLINKING_TYPE.BLINKING_BINARY:
-            default:
+            case E_BLINKING_MODE.BLINKING_BINARY:
                 if(currentFractionOfPeriod < 0.5f)
-                {
-                    colorIntensity = 0.0f;
-                }
-                else
                 {
                     colorIntensity = 1.0f;
                 }
+                else
+                {
+                    colorIntensity = 0.0f;
+                }
+                break;
+
+            case E_BLINKING_MODE.BLINKING_NONE:
+            default:
+                colorIntensity = 1.0f;
                 break;
         }
 

@@ -11,137 +11,276 @@ using System;
 [HarmonyPatch(typeof(VelocityArrowDrawer), "OnLocationChange")]
 class VelocityArrowDrawer_OnLocationChange_Patch
 {
-	public static bool isInApproachPhase = false;
-	public static bool isInNeighborhoodMode = false;
+	// Those are set to the 2 arrows instances from the VelocityArrowDrawer class; call InstantiateArrows() to instantiate
+	private static VelocityArrowDrawer.Arrow arrow_X = null;
+	private static VelocityArrowDrawer.Arrow arrow_Y = null;
 
-	public static Double2 distance; // used in neighborhood mode only
-	public static Double2 closestDistance; // used in final approach mode only
-	public static Double2 relativeSpeed; // used in both modes
-	public static double remainingTime; // used in final approach mode only
-
-	public static Color defaultArrowColor = new Color(1.0f, 1.0f, 1.0f, 0.9019608f);
-
-	public static DynamicColor dynamicColorVelocityArrow = null;
-	public static DynamicColor dynamicColorVelocityText = null;
-	public static DynamicColor dynamicColorImpactArrow;
-	public static DynamicColor dynamicColorImpactText;
-
-	public static Color closestDistanceColorArrow = new Color(1.000f, 0.235f, 0.235f, 0.6f);
-	public static Color closestDistanceColorText = new Color(1.000f, 0.235f, 0.235f);
-
-	public static Color distanceColorArrow = new Color(0.314f, 1.000f, 0.627f, 0.6f);
-	public static Color distanceColorText = new Color(0.314f, 1.000f, 0.627f);
-
-	private const double C_SEARCH_CLOSEST_APPROACH_PERIOD = 60.0;
-	private const double C_NEIGHBORHOOD_DISTANCE = 10000.0;
-
-	public static string getVelocityString(Color color)
-    {
-		double speed = relativeSpeed.magnitude;
-
-		bool showDecimals = (speed < 10.0) ? true : false;
-		string speedText = Units.ToVelocityString(speed, showDecimals);
-
-		string label = "ΔV = " + speedText;
-		return label;
-	}
-
-	public static string getClosestDistanceString(Color color)
-    {
-		float dist = (float)closestDistance.magnitude;
-
-		bool showDecimals = (dist < 100.0) ? true : false;
-		string distText = Units.ToDistanceString(dist, showDecimals);
-
-		string str_remainingSeconds;
-
-		if (remainingTime > 1.0)
-		{
-			str_remainingSeconds = Units.ToTimestampString(remainingTime, true, false);
-		}
-		else
-		{
-			str_remainingSeconds = "0s";
-		}
-
-		string label = "Closest approach = " + distText + " (T-" + str_remainingSeconds + ")";
-
-		return label;
-	}
-
-	public static string getImpactString(Color color)
-    {
-		double speed = relativeSpeed.magnitude;
-
-		string str_remainingSeconds;
-
-		if (remainingTime > 1.0)
-		{
-			str_remainingSeconds = Units.ToTimestampString(remainingTime, true, false);
-		}
-		else
-		{
-			str_remainingSeconds = "0s";
-		}
-
-		string label;
-
-		if(speed > 5.0)
-        {
-			label = "IMPACT!! (T-" + str_remainingSeconds + ")";
-		}
-		else
-        {
-			label = "Encounter (T-" + str_remainingSeconds + ")";
-		}
-
-		return label;
-	}
-
-	public static string getDistanceString(Color color)
+	// NAVIGATION MODE
+	// ---------------
+	// This is a variable to tell how arrows shall be represented depending on the situation. Here is what each value means:
+	// - DEFAULT            : The ingame original velocity arrows shall be used.
+	// - CLOSE_TO_TARGET    : The target is close to the ship (< 10 km), we shall display the DV arrow and the distance arrow.
+	// - FINAL_APPROACH     : A closest approach has been detected in the next 60 seconds, we shall display the DV arrow and the closest approach arrow.
+	// - IMMINENT_ENCOUNTER : The ship heads on the target at low speed. Display the DV arrow and the "Encounter" arrow.
+	// - IMMINENT_IMPACT    : Same but at higher speed. Display the DV arrow and the "Impact" arrow.
+	private enum E_NAV_MODE
 	{
-		float dist = (float)distance.magnitude;
+		DEFAULT,
+		CLOSE_TO_TARGET,
+		FINAL_APPROACH,
+		IMMINENT_ENCOUNTER,
+		IMMINENT_IMPACT
+	}
 
-		bool showDecimals = (dist < 100.0) ? true : false;
-		string distText = Units.ToDistanceString(dist, showDecimals);
+	private static E_NAV_MODE _navState = E_NAV_MODE.DEFAULT;
 
-		string label = "Distance = " + distText;
+	// internal variables
+	private static Double2 _relativePosition; // valid in all navigation modes but DEFAULT
+	private static Double2 _relativeVelocity; // valid in all navigation modes but DEFAULT
+	private static Double2 _closestApproachPosition;   // only valid in the following navigation modes: FINAL_APPROACH, IMMINENT_ENCOUNTER, IMMINENT_IMPACT
+	private static double  _timeBeforeClosestApproach; // only valid in the following navigation modes: FINAL_APPROACH, IMMINENT_ENCOUNTER, IMMINENT_IMPACT
+
+	// colors
+	private static Color _defaultArrowColor = new Color(1.0f, 1.0f, 1.0f, 0.9019608f);
+
+	private static DynamicColor _arrowX_color = new DynamicColor(_defaultArrowColor, _defaultArrowColor, DynamicColor.E_BLINKING_MODE.BLINKING_NONE, 0.0f);
+	private static DynamicColor _arrowY_color = new DynamicColor(_defaultArrowColor, _defaultArrowColor, DynamicColor.E_BLINKING_MODE.BLINKING_NONE, 0.0f);
+	private static DynamicColor _textX_color  = new DynamicColor(_defaultArrowColor, _defaultArrowColor, DynamicColor.E_BLINKING_MODE.BLINKING_NONE, 0.0f);
+	private static DynamicColor _textY_color  = new DynamicColor(_defaultArrowColor, _defaultArrowColor, DynamicColor.E_BLINKING_MODE.BLINKING_NONE, 0.0f);
+
+	// constants
+	private const double C_SEARCH_CLOSEST_APPROACH_PERIOD = 60.0; // seconds - a closest approach will be searched over that many seconds from the current date
+	private const double C_NEIGHBORHOOD_DISTANCE = 10000.0;       // meters  - a target is considered close to the player ship if it's closer than that
+	private const double C_IMPACT_DISTANCE_THRESHOLD = 1.0;       // meters  - a target is considered on an impact trajectory if the closest approach is below that value
+	private const double C_IMPACT_VELOCITY_THRESHOLD = 5.0;       // m/s     - below that speed value, we display an encounter instead of an impact
+	private const double C_MIN_DISTANCE = 20.0;                   // meters  - in CLOSE_TO_TARGET mode, the distance arrow won't be showed below this value
+	private const double C_MIN_VELOCITY = 0.1;                    // m/s     - the minimum velocity above which the velocity arrow (and the impact/encounter arrow) will be shown
+
+
+	// Used to retrieve the game arrows
+	public static void InstantiateArrows()
+	{
+		arrow_X = arrow_Y = null; // default value
+
+		VelocityArrowDrawer theVelocityArrowDrawer = UnityEngine.Object.FindObjectOfType(typeof(VelocityArrowDrawer)) as VelocityArrowDrawer;
+		if (theVelocityArrowDrawer != null)
+		{
+			arrow_X = theVelocityArrowDrawer.velocity_X;
+			arrow_Y = theVelocityArrowDrawer.velocity_Y;
+		}
+	}
+
+	// FUNCTIONS TO EVALUATE THE NAVIGATION MODE
+	// -----------------------------------------
+	private static void evaluateNavigationState()
+    {
+		E_NAV_MODE previousNavState = _navState;
+
+		// Initialize default value
+		_navState = E_NAV_MODE.DEFAULT;
+
+		// Check for other navigation modes
+		// --------------------------------
+		if ( (Map.manager.mapMode.Value == false) &&                                                                    // If the view is in ship mode...
+			 (PlayerController.main.player.Value != null && PlayerController.main.player.Value.mapPlayer != null) &&    // ...and the player's rocket exists...
+			 (Map.navigation.target != null) && !(Map.navigation.target is MapPlanet))                                  // ...and a target is defined, and is not a planet
+        {
+			_relativePosition = Map.navigation.target.Location.position - PlayerController.main.player.Value.mapPlayer.Location.position;
+			_relativeVelocity = Map.navigation.target.Location.velocity - PlayerController.main.player.Value.mapPlayer.Location.velocity;
+
+			// CHECK IF WE ARE CLOSE TO TARGET
+			// -------------------------------
+			if (_relativePosition.magnitude < C_NEIGHBORHOOD_DISTANCE)
+			{
+				_navState = E_NAV_MODE.CLOSE_TO_TARGET;
+			}
+
+			// CHECK IF WE ARE ON FINAL APPROACH OR ENCOUNTER/IMPACT MODE
+			// ----------------------------------------------------------
+			Orbit playerOrbit = null, targetOrbit = null;
+			
+			// Get player orbit
+			Trajectory playerTrajectory = PlayerController.main.player.Value.mapPlayer.Trajectory;
+
+			if (playerTrajectory.paths.Count > 0)
+			{
+				playerOrbit = playerTrajectory.paths[0] as Orbit;
+			}
+
+			// Get target orbit
+			Trajectory targetTrajectory = Map.navigation.target.Trajectory;
+
+			if (targetTrajectory.paths.Count > 0)
+			{
+				targetOrbit = targetTrajectory.paths[0] as Orbit;
+			}
+
+			if ((playerOrbit != null) && (targetOrbit != null))
+			{
+				// Calculate the closest approach over the next 60 seconds
+				double time_now = WorldTime.main.worldTime;
+				ClosestApproachCalculator.T_ApproachData approachData = ClosestApproachCalculator.CalculateClosestApproachOnShortPeriod(playerOrbit, targetOrbit, time_now, time_now + C_SEARCH_CLOSEST_APPROACH_PERIOD);
+
+				if (approachData.validity)
+				{
+					_closestApproachPosition = approachData.locTarget.position - approachData.locPlayer.position;
+					_timeBeforeClosestApproach = approachData.date - time_now;
+
+					if ((_timeBeforeClosestApproach > 0.0) && (_timeBeforeClosestApproach < C_SEARCH_CLOSEST_APPROACH_PERIOD) && (approachData.dist < C_NEIGHBORHOOD_DISTANCE))
+					{
+						if(approachData.dist < C_IMPACT_DISTANCE_THRESHOLD) //IMMINENT_IMPACT
+                        {
+							if(_relativeVelocity.magnitude < C_IMPACT_VELOCITY_THRESHOLD)
+							{ 
+								_navState = E_NAV_MODE.IMMINENT_ENCOUNTER; 
+							}
+							else
+                            {
+								_navState = E_NAV_MODE.IMMINENT_IMPACT;
+							}
+						}
+						else
+						{
+							_navState = E_NAV_MODE.FINAL_APPROACH;
+						}
+					}
+				}
+			}
+		}
+
+		// handle navigation state change if needed
+		if (previousNavState != _navState) OnNavigationModeChanged(previousNavState, _navState);
+	}
+
+	private static void OnNavigationModeChanged(E_NAV_MODE oldNavState, E_NAV_MODE newNavState)
+    {
+		// Navigation mode unchanged, nothing to do
+		if (oldNavState == newNavState) return;
+
+		// If the new mode is DEFAULT, simply set to all objects the default color since our code won't handle it.
+		if(newNavState == E_NAV_MODE.DEFAULT)
+        {
+			setVelocityArrowColor(arrow_X, _defaultArrowColor, _defaultArrowColor);
+			setVelocityArrowColor(arrow_Y, _defaultArrowColor, _defaultArrowColor);
+			return;
+		}
+
+		// transition from DEFAULT to any other mode
+		if(oldNavState == E_NAV_MODE.DEFAULT)
+        {
+			// arrowX is the velocity arrow: displayed in blinking light blue in this case, to tell the player that he should burn in that direction
+			// If the previous mode was something else than DEFAULT we don't do this, because we use the same color and it would restart the blinking process.
+			_arrowX_color.changeColor(DynamicColor.E_COLOR.LIGHT_BLUE_2);
+			_arrowX_color.changeBlinkingMode(DynamicColor.E_BLINKING_MODE.BLINKING_SMOOTH, 1.8f);
+			_arrowX_color.restartBlinkingProcess();
+			_textX_color.changeColor(DynamicColor.E_COLOR.LIGHT_BLUE);
+			_textX_color.changeBlinkingMode(DynamicColor.E_BLINKING_MODE.BLINKING_SMOOTH, 1.8f);
+			_textX_color.restartBlinkingProcess();
+		}
+
+		// transition to CLOSE_TO_TARGET mode
+		if (newNavState == E_NAV_MODE.CLOSE_TO_TARGET)
+        {
+			// arrowY is the distance arrow: displayed in non-blinking light green in this case
+			_arrowY_color.changeColor(DynamicColor.E_COLOR.LIGHT_GREEN_2);
+			_arrowY_color.changeBlinkingMode(DynamicColor.E_BLINKING_MODE.BLINKING_NONE, 0.0f);
+			_textY_color.changeColor(DynamicColor.E_COLOR.LIGHT_GREEN);
+			_textY_color.changeBlinkingMode(DynamicColor.E_BLINKING_MODE.BLINKING_NONE, 0.0f);
+			return;
+		}
+
+		// transition to FINAL APPROACH / IMMINENT ENCOUNTER mode
+		if((newNavState == E_NAV_MODE.FINAL_APPROACH) || (newNavState == E_NAV_MODE.IMMINENT_ENCOUNTER))
+        {
+			// arrowY is the closest approach arrow: displayed in non-blinking light red in this case
+			_arrowY_color.changeColor(DynamicColor.E_COLOR.LIGHT_RED_2);
+			_arrowY_color.changeBlinkingMode(DynamicColor.E_BLINKING_MODE.BLINKING_NONE, 0.0f);
+			_textY_color.changeColor(DynamicColor.E_COLOR.LIGHT_RED);
+			_textY_color.changeBlinkingMode(DynamicColor.E_BLINKING_MODE.BLINKING_NONE, 0.0f);
+			return;
+		}
+
+		// transition to IMMINENT IMPACT mode
+		if (newNavState == E_NAV_MODE.IMMINENT_IMPACT)
+		{
+			// arrowY is the closest approach arrow: displayed in non-blinking red in this case
+			_arrowY_color.changeColor(DynamicColor.E_COLOR.RED_2);
+			_arrowY_color.changeBlinkingMode(DynamicColor.E_BLINKING_MODE.BLINKING_BINARY, 1.2f);
+			_textY_color.changeColor(DynamicColor.E_COLOR.RED);
+			_textY_color.changeBlinkingMode(DynamicColor.E_BLINKING_MODE.BLINKING_BINARY, 1.2f);
+			return;
+		}
+	}
+
+
+	// FUNCTIONS THAT RETURN THE STRINGS TO BE DISPLAYED NEXT TO EACH ARROW
+	// --------------------------------------------------------------------
+	public static string getArrowX_String(Color color)
+    {
+		string label = "";
+
+		if (_navState != E_NAV_MODE.DEFAULT)
+		{
+			double speed = _relativeVelocity.magnitude;
+
+			bool showDecimals = (speed < 10.0) ? true : false;
+			string speedText = Units.ToVelocityString(speed, showDecimals);
+
+			label = "ΔV = " + speedText;
+		}
 
 		return label;
 	}
 
-	public static void resetApproachPhase()
+	public static string getArrowY_String(Color color)
     {
-		if (isInApproachPhase)
-        {
-			VelocityArrowDrawer theVelocityArrow = UnityEngine.Object.FindObjectOfType(typeof(VelocityArrowDrawer)) as VelocityArrowDrawer;
-			setVelocityArrowColor(theVelocityArrow.velocity_X, defaultArrowColor, defaultArrowColor);
-			setVelocityArrowColor(theVelocityArrow.velocity_Y, defaultArrowColor, defaultArrowColor);
+		string label = "";
 
-			dynamicColorVelocityArrow = null;
-			dynamicColorVelocityText = null;
-		}
-
-		isInApproachPhase = false;
-	}
-
-	public static void setApproachPhase(Double2 closestDist, Double2 relativeVel, double remainingTime)
-    {
-		VelocityArrowDrawer_OnLocationChange_Patch.closestDistance = closestDist;
-		VelocityArrowDrawer_OnLocationChange_Patch.relativeSpeed = relativeVel;
-		VelocityArrowDrawer_OnLocationChange_Patch.remainingTime = remainingTime;
-		if (!isInApproachPhase)
+		if (_navState == E_NAV_MODE.CLOSE_TO_TARGET)
 		{
-			if (dynamicColorVelocityArrow == null) dynamicColorVelocityArrow = new DynamicColor(DynamicColor.E_COLOR.LIGHT_BLUE_2, DynamicColor.E_BLINKING_TYPE.BLINKING_SMOOTH, 1.8f);
-			if (dynamicColorVelocityText == null) dynamicColorVelocityText = new DynamicColor(DynamicColor.E_COLOR.LIGHT_BLUE, DynamicColor.E_BLINKING_TYPE.BLINKING_SMOOTH, 1.8f);
-			dynamicColorImpactArrow   = new DynamicColor(DynamicColor.E_COLOR.RED_2, DynamicColor.E_BLINKING_TYPE.BLINKING_BINARY, 1.2f);
-			dynamicColorImpactText = new DynamicColor(DynamicColor.E_COLOR.RED, DynamicColor.E_BLINKING_TYPE.BLINKING_BINARY, 1.2f);
+			float dist = (float)_relativePosition.magnitude;
+
+			bool showDecimals = (dist < 100.0) ? true : false;
+			string distText = Units.ToDistanceString(dist, showDecimals);
+
+			label = "Distance = " + distText;
 		}
-		isInApproachPhase = true;
+		else if((_navState == E_NAV_MODE.FINAL_APPROACH    ) || 
+			    (_navState == E_NAV_MODE.IMMINENT_ENCOUNTER) || 
+				(_navState == E_NAV_MODE.IMMINENT_IMPACT   )   )
+		{
+			// Convert remaining time to string
+			string str_remainingSeconds;
 
-		isInNeighborhoodMode = false;
-	}
+			if (_timeBeforeClosestApproach > 1.0) str_remainingSeconds = Units.ToTimestampString(_timeBeforeClosestApproach, true, false);
+			else str_remainingSeconds = "0s";
 
+			// compute string to display in each situation
+			if (_navState == E_NAV_MODE.FINAL_APPROACH)
+			{
+				float dist = (float)_closestApproachPosition.magnitude;
+
+				bool showDecimals = (dist < 100.0) ? true : false;
+				string distText = Units.ToDistanceString(dist, showDecimals);
+
+				label = "Closest approach = " + distText + " (T-" + str_remainingSeconds + ")";
+			}
+			else if (_navState == E_NAV_MODE.IMMINENT_IMPACT)
+			{
+				label = "IMPACT!! (T-" + str_remainingSeconds + ")";
+			}
+			else if (_navState == E_NAV_MODE.IMMINENT_ENCOUNTER)
+			{
+				label = "Encounter (T-" + str_remainingSeconds + ")";
+			}
+		}
+
+		return label;
+    }
+
+
+	// SETS THE VELOCITY ARROW COLOR
+	// -----------------------------
 	private static void setVelocityArrowColor(VelocityArrowDrawer.Arrow arrow, Color arrowColor, Color textColor)
     {
 		arrow.line.color = arrowColor;
@@ -159,165 +298,42 @@ class VelocityArrowDrawer_OnLocationChange_Patch
         }
 	}
 
-	public static bool isInNeighborhood(Location location)
+
+	// FUNCTIONS TO DETERMINE THE ARROWS LENGTH
+	// ----------------------------------------
+	private static float GetGenericArrowLength(float ref_val, float val)
     {
-		if (Map.navigation.target == null)
-		{
-			return false;
-		}
+		// ref_val is the value of val around which the length variation will be maximal
+		float x = val / ref_val;
 
-		distance = Map.navigation.target.Location.position - location.position;
-
-		if (distance.magnitude < C_NEIGHBORHOOD_DISTANCE )
+		// the value returned is always between 0 and 1, it's a normalized length
+		if(x < 1.0)
         {
-			relativeSpeed = Map.navigation.target.Location.velocity - location.velocity;
-
-			if(!isInNeighborhoodMode)
-            {
-				if (dynamicColorVelocityArrow == null) dynamicColorVelocityArrow = new DynamicColor(DynamicColor.E_COLOR.LIGHT_BLUE_2, DynamicColor.E_BLINKING_TYPE.BLINKING_SMOOTH, 1.8f);
-				if (dynamicColorVelocityText  == null) dynamicColorVelocityText  = new DynamicColor(DynamicColor.E_COLOR.LIGHT_BLUE, DynamicColor.E_BLINKING_TYPE.BLINKING_SMOOTH, 1.8f);
-				isInNeighborhoodMode = true;
-			}
+			return 0.25f * x * (x + 1.0f);
         }
 		else
         {
-			if (isInNeighborhoodMode)
-			{
-				dynamicColorVelocityArrow = null;
-				dynamicColorVelocityText = null;
-				VelocityArrowDrawer theVelocityArrow = UnityEngine.Object.FindObjectOfType(typeof(VelocityArrowDrawer)) as VelocityArrowDrawer;
-				setVelocityArrowColor(theVelocityArrow.velocity_X, defaultArrowColor, defaultArrowColor);
-				setVelocityArrowColor(theVelocityArrow.velocity_Y, defaultArrowColor, defaultArrowColor);
-				isInNeighborhoodMode = false;
-			}
-        }
-
-		return isInNeighborhoodMode;
-	}
-
-	public static void calculateClosestApproach()
-    {
-		Orbit playerOrbit = null;
-		Orbit targetOrbit = null;
-
-		// Is navigation active?
-		if(Map.navigation.target == null)
-        {
-			resetApproachPhase();
-			return;
-        }
-
-		// Does rocket player exist?
-		if (PlayerController.main.player.Value == null || PlayerController.main.player.Value.mapPlayer == null)
-		{
-			resetApproachPhase();
-			return;
-		}
-
-		// Get player orbit
-		Trajectory playerTrajectory = PlayerController.main.player.Value.mapPlayer.Trajectory;
-
-		if (playerTrajectory.paths.Count > 0)
-        {
-			if (playerTrajectory.paths[0] is Orbit orbit1)
-			{
-				playerOrbit = orbit1;
-			}
-		}
-
-		if(playerOrbit == null)
-        {
-			resetApproachPhase();
-			return;
-		}
-
-		// Get target orbit
-		Trajectory targetTrajectory = Map.navigation.target.Trajectory;
-
-		if (targetTrajectory.paths.Count > 0)
-		{
-			if (targetTrajectory.paths[0] is Orbit orbit2)
-			{
-				targetOrbit = orbit2;
-			}
-		}
-
-		if (targetOrbit == null)
-		{
-			resetApproachPhase();
-			return;
-		}
-
-		// Calculate the closest approach
-		// ------------------------------
-		ClosestApproachCalculator.T_ApproachData approachData = ClosestApproachCalculator.CalculateClosestApproachOnShortPeriod(playerOrbit, targetOrbit, C_SEARCH_CLOSEST_APPROACH_PERIOD);
-
-		if(approachData.validity)
-        {
-			double deltaTime = approachData.date - WorldTime.main.worldTime;
-			if (((deltaTime > 0.0) && (deltaTime < C_SEARCH_CLOSEST_APPROACH_PERIOD)) && (approachData.dist < C_NEIGHBORHOOD_DISTANCE))
-			{
-				Double2 distVector = approachData.locTarget.position - approachData.locPlayer.position;
-				Double2 currentRelSpeedVector = targetOrbit.GetLocation(WorldTime.main.worldTime).velocity - playerOrbit.GetLocation(WorldTime.main.worldTime).velocity;
-
-				setApproachPhase(distVector, currentRelSpeedVector, deltaTime);
-			}
-            else
-            {
-				resetApproachPhase();
-			}
-		}
-		else
-        {
-			resetApproachPhase();
-		}
-	}
-
-	private static float GetVelocityArrowLength(double velocity)
-    {
-		if(velocity < 0.1)
-        {
-			return 0.0f;
-        }
-		else if(velocity > 100.0f)
-        {
-			return 1.0f;
-        }
-        else
-        {
-			return (float)(0.1 + 0.9 * Math.Pow(velocity / 100.0, 2.0));
+			return (1.0f - 1.0f / (3.0f * x - 1.0f));
         }
     }
+	
+	private static float GetVelocityArrowLength(double velocity)
+    {
+		return 0.2f + 0.8f * GetGenericArrowLength(50.0f, (float)velocity);
+	}
 
-	private static float GetDistanceArrowLength(double distance)
+	private static float GetDistanceArrowLength(double dist)
 	{
-		const float MIN_DIST = 20.0f;
-		const float MIN_LENGTH = 0.2f;
-		const float MAX_DIST = 100.0f;
-		const float MAX_LENGTH = 1.0f;
-
-		if(distance < MIN_DIST)
-        {
-			return MIN_LENGTH;
-        }
-		else if (distance > MAX_DIST)
-		{
-			return MAX_LENGTH;
-		}
-		else
-		{
-			return (MIN_LENGTH + ((float)distance - MIN_DIST) * (MAX_LENGTH - MIN_LENGTH) / (MAX_DIST - MIN_DIST));
-		}
+		return 0.2f + 0.8f * GetGenericArrowLength(200.0f, (float)dist);
 	}
 
 	private static float GetArrowLengthFactor()
     {
 		double maxRadius = 0.9 * GameCamerasManager.main.world_Camera.camera.pixelHeight / 2.0;
-
 		return (float)(0.4 * maxRadius);
 	}
 
-	private static Vector2 getHitPos(Double2 val, double length)
+	private static Vector2 getArrowPos(Double2 val, double length, double distanceFromOrigin)
     {
 		Double2 center;
 
@@ -328,9 +344,7 @@ class VelocityArrowDrawer_OnLocationChange_Patch
 
 		double magnitude = val.magnitude;
 
-		const double radiusOrigin = 0.4;
-
-		double distFromOrigin = radiusOrigin * maxRadius + length / 2.0;
+		double distFromOrigin = distanceFromOrigin * maxRadius + 0.5f * length;
 
 		Vector2 hitPos;
 		hitPos.x = (float)(center.x + distFromOrigin * val.x / magnitude);
@@ -339,161 +353,130 @@ class VelocityArrowDrawer_OnLocationChange_Patch
 		return hitPos;
 	}
 
+
+	// COMPUTE AND DISPLAY THE ARROWS (the navigation mode mustn't be DEFAULT!)
+	// ------------------------------
 	private static void displayDeltaVarrow(Location location)
 	{
-		VelocityArrowDrawer theVelocityArrow = UnityEngine.Object.FindObjectOfType(typeof(VelocityArrowDrawer)) as VelocityArrowDrawer;
-		VelocityArrowDrawer.Arrow velocityArrow = theVelocityArrow.velocity_X;
-		VelocityArrowDrawer.Arrow distanceArrow = theVelocityArrow.velocity_Y;
+		// the length desired for arrows, in percentage of the maximal arrow length
+		const float C_VELOCITY_ARROW_LENGTH_FACTOR = 0.5f;
+		const float C_DISTANCE_ARROW_LENGTH_FACTOR = 0.65f;
 
-		
+		// the distance of the arrow origin from the center of the screen, in percentage of the maximal length
+		const float C_VELOCITY_ARROW_DISTANCE_FROM_CENTER = 0.25f;
+		const float C_DISTANCE_ARROW_DISTANCE_FROM_CENTER = 0.6f;
+
+		// If player doesn't control or isn't in ship view, don't display the arrows
 		if (!(PlayerController.main.player.Value is Rocket) || (bool)Map.manager.mapMode)
 		{
-			velocityArrow.SetActive(active: false);
-			distanceArrow.SetActive(active: false);
+			arrow_X.SetActive(active: false);
+			arrow_Y.SetActive(active: false);
 			return;
 		}
 
+		// If zoom level is too low, don't display the arrows
 		float sizeRadius = PlayerController.main.player.Value.GetSizeRadius();
 		if ((float)WorldView.main.viewDistance > sizeRadius * 50f + 50f)
 		{
-			velocityArrow.SetActive(active: false);
-			distanceArrow.SetActive(active: false);
+			arrow_X.SetActive(active: false);
+			arrow_Y.SetActive(active: false);
 			return;
 		}
 
-		Vector2 origin = GameCamerasManager.main.world_Camera.camera.WorldToScreenPoint(WorldView.ToLocalPosition(location.position));
+		// DISPLAY ARROW X (if active)
+		// ---------------
+		float speed = (float)_relativeVelocity.magnitude;
 
-		float speed = (float)relativeSpeed.magnitude;
-		float arrowLength = GetVelocityArrowLength(speed) * GetArrowLengthFactor();
-
-		if (arrowLength > 0f)
+		if (speed > C_MIN_VELOCITY)
 		{
-			Double2 directionNormal = relativeSpeed.Rotate(0f - GameCamerasManager.main.world_Camera.CameraRotationRadians) / speed;
+			// Determine the arrow position and length
+			float velocityArrowLength = GetVelocityArrowLength(speed) * GetArrowLengthFactor() * C_VELOCITY_ARROW_LENGTH_FACTOR;
+			Double2 directionNormal = _relativeVelocity.Rotate(0f - GameCamerasManager.main.world_Camera.CameraRotationRadians) / speed;
+			Vector2 arrowPos = getArrowPos(_relativeVelocity, velocityArrowLength, 0.4f);
 
-			Vector2 arrowPos = getHitPos(relativeSpeed, arrowLength);
-
-			setVelocityArrowColor(velocityArrow, dynamicColorVelocityArrow.getColor(), dynamicColorVelocityText.getColor());
-
-			velocityArrow.Position(getVelocityString, arrowLength, arrowPos, directionNormal);
+			// display the arrow
+			setVelocityArrowColor(arrow_X, _arrowX_color.getColor(), _textX_color.getColor());
+			arrow_X.Position(getArrowX_String, velocityArrowLength, arrowPos, directionNormal);
 		}
 		else
 		{
-			velocityArrow.SetActive(active: false);
+			arrow_X.SetActive(active: false);
 		}
 
-		// Distance
-		float dist = (float)closestDistance.magnitude;
-		float distanceArrowLength = GetDistanceArrowLength(dist) * GetArrowLengthFactor() / 2.0f;
+		// DISPLAY ARROW Y
+		// ---------------
 
-		if (dist > 1.0f)
-        {
-			Double2 directionNormal = closestDistance.Rotate(0f - GameCamerasManager.main.world_Camera.CameraRotationRadians) / dist;
+		// Determine the arrow position in each situation
+		if (_navState == E_NAV_MODE.CLOSE_TO_TARGET)
+		{
+			float dist = (float)_relativePosition.magnitude;
 
-			Vector2 arrowPos = getHitPos(closestDistance, distanceArrowLength);
+			if (dist > C_MIN_DISTANCE)
+			{
+				// Determine the arrow position and length
+				float distanceArrowLength = GetDistanceArrowLength(dist) * GetArrowLengthFactor() * C_DISTANCE_ARROW_LENGTH_FACTOR;
+				Double2 directionNormal = _relativePosition.Rotate(0f - GameCamerasManager.main.world_Camera.CameraRotationRadians) / dist;
+				Vector2 arrowPos = getArrowPos(_relativePosition, distanceArrowLength, C_DISTANCE_ARROW_DISTANCE_FROM_CENTER);
 
-			setVelocityArrowColor(distanceArrow, closestDistanceColorArrow, closestDistanceColorText);
-
-			distanceArrow.Position(getClosestDistanceString, distanceArrowLength, arrowPos, directionNormal);
+				// display the arrow
+				setVelocityArrowColor(arrow_Y, _arrowY_color.getColor(), _textY_color.getColor());
+				arrow_Y.Position(getArrowY_String, distanceArrowLength, arrowPos, directionNormal);
+			}
+			else
+            {
+				arrow_Y.SetActive(false);
+			}
 		}
-		else if(speed > 0.0)
+		else if(_navState == E_NAV_MODE.FINAL_APPROACH)
         {
-			// Impact trajectory - As direction, we take the opposite of velocity direction
-			Double2 directionNormal = - relativeSpeed.Rotate(0f - GameCamerasManager.main.world_Camera.CameraRotationRadians) / speed;
+			float dist = (float)_closestApproachPosition.magnitude;
 
-			// Corresponds to the minimal arrow length
-			float impactArrowLength = 0.2f * GetArrowLengthFactor() / 2.0f;
+			if (dist > C_IMPACT_DISTANCE_THRESHOLD)
+			{
+				// Determine the arrow position and length
+				float distanceArrowLength = GetDistanceArrowLength(dist) * GetArrowLengthFactor() * C_DISTANCE_ARROW_LENGTH_FACTOR;
+				Double2 directionNormal = _closestApproachPosition.Rotate(0f - GameCamerasManager.main.world_Camera.CameraRotationRadians) / dist;
+				Vector2 arrowPos = getArrowPos(_closestApproachPosition, distanceArrowLength, C_DISTANCE_ARROW_DISTANCE_FROM_CENTER);
 
-			Vector2 arrowPos = getHitPos(directionNormal, impactArrowLength);
-
-			if(speed > 5.0)
-            {
-				setVelocityArrowColor(distanceArrow, dynamicColorImpactArrow.getColor(), dynamicColorImpactText.getColor());
+				// display the arrow
+				setVelocityArrowColor(arrow_Y, _arrowY_color.getColor(), _textY_color.getColor());
+				arrow_Y.Position(getArrowY_String, distanceArrowLength, arrowPos, directionNormal);
 			}
-            else
-            {
-				setVelocityArrowColor(distanceArrow, closestDistanceColorArrow, closestDistanceColorText);
+            else 
+			{
+				arrow_Y.SetActive(false);
 			}
+		}
+		else if((speed > C_MIN_VELOCITY) && ((_navState == E_NAV_MODE.IMMINENT_ENCOUNTER) || (_navState == E_NAV_MODE.IMMINENT_IMPACT)))
+        {
+			// Determine the arrow position (arrow length is minimal)
+			float distanceArrowLength = GetDistanceArrowLength(0.0) * GetArrowLengthFactor() * C_DISTANCE_ARROW_LENGTH_FACTOR;
+			Double2 directionNormal = -_relativeVelocity.Rotate(0f - GameCamerasManager.main.world_Camera.CameraRotationRadians) / speed; // As direction, we take the opposite of velocity direction
+			Vector2 arrowPos = getArrowPos(directionNormal, distanceArrowLength, C_DISTANCE_ARROW_DISTANCE_FROM_CENTER);
 
-			distanceArrow.Position(getImpactString, impactArrowLength, arrowPos, directionNormal);
+			// display the arrow
+			setVelocityArrowColor(arrow_Y, _arrowY_color.getColor(), _textY_color.getColor());
+			arrow_Y.Position(getArrowY_String, distanceArrowLength, arrowPos, directionNormal);
 		}
         else
         {
-			distanceArrow.SetActive(false);
-        }
-	}
-
-
-	private static void displayDeltaVarrow_NeighborhoodMode(Location location)
-	{
-		VelocityArrowDrawer theVelocityArrow = UnityEngine.Object.FindObjectOfType(typeof(VelocityArrowDrawer)) as VelocityArrowDrawer;
-		VelocityArrowDrawer.Arrow velocityArrow = theVelocityArrow.velocity_X;
-		VelocityArrowDrawer.Arrow distanceArrow = theVelocityArrow.velocity_Y;
-
-		if (!(PlayerController.main.player.Value is Rocket) || (bool)Map.manager.mapMode)
-		{
-			velocityArrow.SetActive(active: false);
-			distanceArrow.SetActive(active: false);
-			return;
-		}
-
-		float sizeRadius = PlayerController.main.player.Value.GetSizeRadius();
-		if ((float)WorldView.main.viewDistance > sizeRadius * 50f + 50f)
-		{
-			velocityArrow.SetActive(active: false);
-			distanceArrow.SetActive(active: false);
-			return;
-		}
-
-		Vector2 origin = GameCamerasManager.main.world_Camera.camera.WorldToScreenPoint(WorldView.ToLocalPosition(location.position));
-
-		float speed = (float)relativeSpeed.magnitude;
-		float arrowLength = GetVelocityArrowLength(speed) * GetArrowLengthFactor();
-
-		if (arrowLength > 0f)
-		{
-			Double2 directionNormal = relativeSpeed.Rotate(0f - GameCamerasManager.main.world_Camera.CameraRotationRadians) / speed;
-
-			Vector2 arrowPos = getHitPos(relativeSpeed, arrowLength);
-
-			setVelocityArrowColor(velocityArrow, dynamicColorVelocityArrow.getColor(), dynamicColorVelocityText.getColor());
-
-			velocityArrow.Position(getVelocityString, arrowLength, arrowPos, directionNormal);
-		}
-		else
-		{
-			velocityArrow.SetActive(active: false);
-		}
-
-		// Distance
-		float dist = (float)distance.magnitude;
-		float distanceArrowLength = GetDistanceArrowLength(dist) * GetArrowLengthFactor() / 2.0f;
-
-		if (dist > 10.0f)
-		{
-			Double2 directionNormal = distance.Rotate(0f - GameCamerasManager.main.world_Camera.CameraRotationRadians) / dist;
-
-			Vector2 arrowPos = getHitPos(distance, distanceArrowLength);
-
-			setVelocityArrowColor(distanceArrow, distanceColorArrow, distanceColorText);
-
-			distanceArrow.Position(getDistanceString, distanceArrowLength, arrowPos, directionNormal);
-		}
-		else
-		{
-			distanceArrow.SetActive(false);
+			arrow_Y.SetActive(false);
 		}
 	}
 
+	
 
 	[HarmonyPrefix]
 	public static bool OnLocationChange_Prefix(Location _, Location location)
 	{
-		if (!Map.manager.mapMode.Value) // view is in ship mode
+		// Compute and display custom velocity arrows (if applicable)
+		// ------------------------------------------
+		if ((arrow_X != null) && (arrow_Y != null) && !Map.manager.mapMode.Value) // arrows exist and view is in ship mode
 		{
-			calculateClosestApproach();
+			evaluateNavigationState();
 
-			if (isInApproachPhase)
-			{
+			if(_navState != E_NAV_MODE.DEFAULT)
+            {
 				try
 				{
 					displayDeltaVarrow(location);
@@ -502,23 +485,30 @@ class VelocityArrowDrawer_OnLocationChange_Patch
 				catch (Exception ex)
 				{
 					//FileLog.Log("Exception : " + ex.Message);
+					return true;
 				}
 			}
-			else if(isInNeighborhood(location))
+			else
             {
-				try
-				{
-					displayDeltaVarrow_NeighborhoodMode(location);
-					return false;
-				}
-				catch (Exception ex)
-				{
-					//FileLog.Log("Exception : " + ex.Message);
-				}
-			}
+				// default mode: call usual code
+				return true;
+            }
 		}
-		
+
 		// call the original method
 		return true;
 	}
 }
+
+
+[HarmonyPatch(typeof(VelocityArrowDrawer), "Start")]
+class VelocityArrowDrawer_Start_Patch
+{
+	[HarmonyPostfix]
+	public static void Start_postfix()
+    {
+		// Initialize the reference on arrows each time the game is started
+		VelocityArrowDrawer_OnLocationChange_Patch.InstantiateArrows();
+	}
+}
+

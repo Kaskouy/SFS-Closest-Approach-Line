@@ -49,10 +49,6 @@ public class MapNavigation_OnPlayerChange_Patch
 [HarmonyPatch(typeof(MapNavigation), nameof(MapNavigation.DrawNavigation))]
 public class MapNavigation_Patch
 {
-	static bool velocityArrowCreated = false;
-
-	//private static ClosestApproachCalculator.T_ApproachData currentApproachData;
-
 	[HarmonyPostfix]
 	public static void DrawNavigation_postfix(MapNavigation __instance, SelectableObject ___target)
     {
@@ -71,13 +67,6 @@ public class MapNavigation_Patch
 		{
 			return;
 		}
-
-		/*if(!velocityArrowCreated)
-        {
-			velocityArrowCreated = true;
-
-			CreateVelocityArrow();
-		}*/
 
 		Orbit targetOrbit = orbits3[0];
 		Orbit playerOrbit = null;
@@ -115,15 +104,6 @@ public class MapNavigation_Patch
 			string closestApproachText = ClosestApproachLine_Utils.GetClosestApproachText(approachData.dist, ClosestApproachCalculator.GetApproachSpeed(approachData), approachData.date);
 
 			ClosestApproachLine_Utils.DrawDashedLine(playerOrbit, approachData.locPlayer, approachData.locTarget, lineColor, null, closestApproachText);
-
-			/*double deltaTime = approachData.date - WorldTime.main.worldTime;
-			if (((deltaTime > 0.0) && (deltaTime <60.0)) && (approachData.dist < 5000.0) )
-            {
-				Double2 distVector = approachData.locTarget.position - approachData.locPlayer.position;
-				Double2 relSpeedVector = approachData.locTarget.velocity - approachData.locPlayer.velocity;
-
-				VelocityArrowDrawer_OnLocationChange_Patch.setApproachPhase(distVector, relSpeedVector, deltaTime);
-			}*/
 		}
 
 		// Evolution: calculate closest approach on several turns
@@ -177,135 +157,5 @@ public class MapNavigation_Patch
 			orbits[i] = orbit3;
 		}
 		return orbits.Length != 0;
-	}
-
-	public static void CreateVelocityArrow()
-    {
-		//UnityEngine.Object listObjects1 = Object.FindObjectOfType<VelocityArrowDrawer>(true);
-		/*UnityEngine.Object listObjects2 =*/
-		/*Object theObject = Object.FindObjectOfType(typeof(VelocityArrowDrawer));
-
-		if (theObject != null)
-        {
-			FileLog.Log("L'objet que je cherche : " + theObject.GetType().ToString()); 
-		}
-        else
-        {
-			FileLog.Log("L'objet est null!");
-		}*/
-
-		Object velocityArrowObject = Object.FindObjectOfType(typeof(VelocityArrowDrawer));
-
-		if(velocityArrowObject != null)
-		{
-			if(velocityArrowObject is VelocityArrowDrawer velocityArrowComponent)
-            {
-				FileLog.Log("L'objet que je cherche : " + velocityArrowComponent.gameObject.ToString());
-
-				Object transformObj = Object.Instantiate(velocityArrowComponent.gameObject.transform);
-
-				if (transformObj is Transform transfromCopy)
-				{
-					Object newVelocityArrowObj = Object.Instantiate(velocityArrowComponent.gameObject, transfromCopy, true);
-
-					if (newVelocityArrowObj is GameObject newVelocityArrow)
-					{
-						MonoBehaviour oldBehaviour = newVelocityArrow.GetComponent<VelocityArrowDrawer>();
-
-						if (oldBehaviour != null)
-						{
-							//Object.Destroy(oldBehaviour);
-
-							newVelocityArrow.AddComponent<CloseVelocityArrowDrawer>();
-							//newVelocityArrow.SetActive(true);
-							FileLog.Log("New velocity arrow: CREATED!");
-
-							Component theCloseVelocityArrowDrawerComponent = newVelocityArrow.GetComponent<CloseVelocityArrowDrawer>();
-
-							if (theCloseVelocityArrowDrawerComponent is CloseVelocityArrowDrawer theCloseVelocityArrowDrawer)
-							{
-								//theCloseVelocityArrowDrawer.safeArea = Object.Instantiate<RectTransform>(velocityArrowComponent.safeArea);
-								theCloseVelocityArrowDrawer.safeArea = velocityArrowComponent.safeArea;
-
-								theCloseVelocityArrowDrawer.velocity_X = new CloseVelocityArrowDrawer.Arrow();
-
-								theCloseVelocityArrowDrawer.velocity_X.holder = Object.Instantiate<RectTransform>(velocityArrowComponent.velocity_X.holder);
-								theCloseVelocityArrowDrawer.velocity_X.holder_Shadow = Object.Instantiate<RectTransform>(velocityArrowComponent.velocity_X.holder_Shadow);
-
-								theCloseVelocityArrowDrawer.velocity_X.line = Object.Instantiate<Image>(velocityArrowComponent.velocity_X.line);
-								theCloseVelocityArrowDrawer.velocity_X.line_Shadow = Object.Instantiate<Image>(velocityArrowComponent.velocity_X.line_Shadow);
-
-								theCloseVelocityArrowDrawer.velocity_X.text = Object.Instantiate<Text>(velocityArrowComponent.velocity_X.text);
-								theCloseVelocityArrowDrawer.velocity_X.text_Shadow = Object.Instantiate<Text>(velocityArrowComponent.velocity_X.text_Shadow);
-
-
-								theCloseVelocityArrowDrawer.velocity_Y = new CloseVelocityArrowDrawer.Arrow();
-
-								theCloseVelocityArrowDrawer.velocity_Y.holder = Object.Instantiate<RectTransform>(velocityArrowComponent.velocity_Y.holder);
-								theCloseVelocityArrowDrawer.velocity_Y.holder_Shadow = Object.Instantiate<RectTransform>(velocityArrowComponent.velocity_Y.holder_Shadow);
-
-								theCloseVelocityArrowDrawer.velocity_Y.line = Object.Instantiate<Image>(velocityArrowComponent.velocity_Y.line);
-								theCloseVelocityArrowDrawer.velocity_Y.line_Shadow = Object.Instantiate<Image>(velocityArrowComponent.velocity_Y.line_Shadow);
-
-								theCloseVelocityArrowDrawer.velocity_Y.text = Object.Instantiate<Text>(velocityArrowComponent.velocity_Y.text);
-								theCloseVelocityArrowDrawer.velocity_Y.text_Shadow = Object.Instantiate<Text>(velocityArrowComponent.velocity_Y.text_Shadow);
-
-								/*theCloseVelocityArrowDrawer.velocity_X.holder = */
-								/*Object newObj = Object.Instantiate(velocityArrowComponent.velocity_X.holder);
-								FileLog.Log("1");
-
-								if (newObj is RectTransform newRectTransform)
-								{
-									FileLog.Log("2");
-									theCloseVelocityArrowDrawer.velocity_X.holder = newRectTransform;
-								}
-								FileLog.Log("3");*/
-
-								/*theCloseVelocityArrowDrawer.velocity_X.holder = velocityArrowComponent.velocity_X.holder;
-								theCloseVelocityArrowDrawer.velocity_X.holder_Shadow = velocityArrowComponent.velocity_X.holder_Shadow;
-								theCloseVelocityArrowDrawer.velocity_X.line = velocityArrowComponent.velocity_X.line;
-								theCloseVelocityArrowDrawer.velocity_X.line_Shadow = velocityArrowComponent.velocity_X.line_Shadow;
-								theCloseVelocityArrowDrawer.velocity_X.text = velocityArrowComponent.velocity_X.text;
-								theCloseVelocityArrowDrawer.velocity_X.text_Shadow = velocityArrowComponent.velocity_X.text_Shadow;
-
-								theCloseVelocityArrowDrawer.velocity_Y.holder = velocityArrowComponent.velocity_Y.holder;
-								theCloseVelocityArrowDrawer.velocity_Y.holder_Shadow = velocityArrowComponent.velocity_Y.holder_Shadow;
-								theCloseVelocityArrowDrawer.velocity_Y.line = velocityArrowComponent.velocity_Y.line;
-								theCloseVelocityArrowDrawer.velocity_Y.line_Shadow = velocityArrowComponent.velocity_Y.line_Shadow;
-								theCloseVelocityArrowDrawer.velocity_Y.text = velocityArrowComponent.velocity_Y.text;
-								theCloseVelocityArrowDrawer.velocity_Y.text_Shadow = velocityArrowComponent.velocity_Y.text_Shadow;*/
-
-								FileLog.Log("New velocity arrow: All materials copied!");
-							}
-							else
-							{
-								FileLog.Log("FAILED to get new behaviour!");
-							}
-
-						}
-						else
-						{
-							FileLog.Log("FAILED to get old behaviour!");
-						}
-					}
-					else
-					{
-						FileLog.Log("FAILED to duplicate object!");
-					}
-				}
-				else
-                {
-					FileLog.Log("FAILED to duplicate transform!");
-				}
-			}
-            else
-            {
-				FileLog.Log("FAILED to get convert VelocityArrowDrawer object to Component!");
-			}
-		}
-        else
-        {
-			FileLog.Log("FAILED to get VelocityArrowDrawer object!");
-		}
 	}
 }

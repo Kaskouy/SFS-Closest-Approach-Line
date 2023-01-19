@@ -12,7 +12,7 @@ public class ClosestApproachLine_Utils
 		string closestApproachText = "closest approach: " + approachDistance.ToDistanceString();
 		double durationBeforeApproach = approachTime - WorldTime.main.worldTime;
 
-		const double C_MAX_DISTANCE_SHOW_TIMER = 5000.0;
+		const double C_MAX_DISTANCE_SHOW_TIMER = 10000.0;
 
 		// Display the remaining time 
 		if ((approachDistance < C_MAX_DISTANCE_SHOW_TIMER) && (durationBeforeApproach < 60.0) && (durationBeforeApproach > 0.0))
@@ -28,8 +28,6 @@ public class ClosestApproachLine_Utils
 			{
 				closestApproachText = closestApproachText + " (ΔV = " + speedText + "; T-" + Units.ToTimestampString(durationBeforeApproach, true, false) + ")";
 			}
-
-			//ToVelocityString(this double a, bool decimals = true)
 		}
 
 		return closestApproachText;
@@ -43,9 +41,9 @@ public class ClosestApproachLine_Utils
 		}
 		else if (distance > 20.0)
 		{
+			// Ensures a smooth transition from orange to red
 			Color orange = new Color(1.0f, 0.549f, 0.235f, 0.8f);
 			Color red = new Color(1.0f, 0.1f, 0.0f, 0.8f);
-			//return new Color(1.0f, 0.549f, 0.235f, 0.8f); // orange
 			return Color.Lerp(red, orange, (float)((distance - 20.0) / (100.0 - 20.0)));
 		}
 		else
